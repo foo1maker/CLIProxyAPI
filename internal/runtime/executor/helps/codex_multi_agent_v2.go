@@ -135,3 +135,16 @@ func OptimizeCodexMultiAgentV2RequestForAuth(ctx context.Context, headers http.H
 func RestoreCodexMultiAgentV2Response(payload []byte, optimized bool) []byte {
 	return multiagentv2.RestoreCodexMultiAgentV2Response(payload, optimized)
 }
+
+// BuildCodexNamespaceRestoreMap records request-scoped canonical namespace
+// identities and any exact alias present in the post-transform body.
+func BuildCodexNamespaceRestoreMap(original, optimized []byte) *multiagentv2.CodexNamespaceRestoreMap {
+	return multiagentv2.BuildCodexNamespaceRestoreMap(original, optimized)
+}
+
+// RestoreCodexResponseNamespaces restores exact request-mapped namespace tool
+// identities, then applies the existing Multi-Agent V2 optimizer restore.
+func RestoreCodexResponseNamespaces(payload []byte, optimized bool, restoreMap *multiagentv2.CodexNamespaceRestoreMap) []byte {
+	payload = multiagentv2.RestoreCodexNamespaceToolsFromMap(payload, restoreMap)
+	return multiagentv2.RestoreCodexMultiAgentV2Response(payload, optimized)
+}

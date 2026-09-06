@@ -65,7 +65,9 @@ func (e *CodexWebsocketsExecutor) Execute(ctx context.Context, auth *cliproxyaut
 	body = sanitizeOpenAIResponsesReasoningEncryptedContent(ctx, "codex websockets executor", body)
 	body = normalizeCodexWebsocketParallelToolCalls(body, opts.Headers)
 	multiAgentV2Conflict := helps.HasCodexMultiAgentV2NamespaceConflict(body)
+	preNamespaceBody := body
 	body, optimizeMultiAgentV2 := helps.OptimizeCodexMultiAgentV2RequestForAuth(ctx, opts.Headers, body, e.cfg, auth, baseModel)
+	namespaceRestoreMap := helps.BuildCodexNamespaceRestoreMap(preNamespaceBody, body)
 	body, replayScope, errReplay := applyCodexReasoningReplayCacheRequired(ctx, from, req, opts, body)
 	if errReplay != nil {
 		return resp, errReplay
@@ -297,7 +299,7 @@ func (e *CodexWebsocketsExecutor) Execute(ctx context.Context, auth *cliproxyaut
 		payload = applyCodexIdentityConfuseResponsePayload(payload, identityState)
 		helps.AppendCodexAPIWebsocketResponse(ctx, e.cfg, payload)
 		helps.EmitWebSocketResponseEvent(ctx, opts, auth, e.Identifier(), req.Model, payload)
-		payload = helps.RestoreCodexMultiAgentV2Response(payload, restoreMultiAgentV2)
+		payload = helps.RestoreCodexResponseNamespaces(payload, restoreMultiAgentV2, namespaceRestoreMap)
 
 		if wsErr, ok := parseCodexWebsocketError(payload); ok {
 			if sess != nil {

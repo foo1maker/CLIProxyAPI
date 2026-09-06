@@ -72,7 +72,9 @@ func (e *CodexExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Au
 	}
 	body = sanitizeOpenAIResponsesReasoningEncryptedContent(ctx, "codex executor", body)
 	body = normalizeCodexParallelToolCalls(body, opts.Headers)
+	preNamespaceBody := body
 	body, optimizeMultiAgentV2 := helps.OptimizeCodexMultiAgentV2RequestForAuth(ctx, opts.Headers, body, e.cfg, auth, baseModel)
+	namespaceRestoreMap := helps.BuildCodexNamespaceRestoreMap(preNamespaceBody, body)
 	body, replayScope, errReplay := applyCodexReasoningReplayCacheRequired(ctx, from, req, opts, body)
 	if errReplay != nil {
 		return nil, errReplay
@@ -170,7 +172,7 @@ func (e *CodexExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Au
 				isHandshake = true
 			} else if bytes.HasPrefix(line, dataTag) {
 				data := bytes.TrimSpace(line[5:])
-				data = helps.RestoreCodexMultiAgentV2Response(data, optimizeMultiAgentV2)
+				data = helps.RestoreCodexResponseNamespaces(data, optimizeMultiAgentV2, namespaceRestoreMap)
 				observeCodexTokenEvent(reporter, data)
 				translatedLine = append([]byte("data: "), data...)
 				eventType := gjson.GetBytes(data, "type").String()
@@ -300,7 +302,7 @@ func (e *CodexExecutor) ExecuteStream(ctx context.Context, auth *cliproxyauth.Au
 				translatedLine = transformed
 			} else if bytes.HasPrefix(line, dataTag) {
 				data := bytes.TrimSpace(line[5:])
-				data = helps.RestoreCodexMultiAgentV2Response(data, optimizeMultiAgentV2)
+				data = helps.RestoreCodexResponseNamespaces(data, optimizeMultiAgentV2, namespaceRestoreMap)
 				observeCodexTokenEvent(reporter, data)
 				translatedLine = append([]byte("data: "), data...)
 				eventType := gjson.GetBytes(data, "type").String()
