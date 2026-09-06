@@ -1,7 +1,6 @@
 package multiagentv2
 
 import (
-	"encoding/json"
 	"strings"
 	"testing"
 
@@ -395,13 +394,16 @@ func TestEmptyMapLeavesPayloadUnchanged(t *testing.T) {
 	}
 }
 
-func TestRestoreUniqueShortChildNameWithNullNamespace(t *testing.T) {
+func TestBareUnprovenShortChildRemainsUntouched(t *testing.T) {
 	t.Parallel()
 
 	payload := []byte(`{"type":"function_call","call_id":"call_wait","name":"wait_agent","namespace":null,"arguments":"{\"timeout_ms\":1000}"}`)
 	got := restoreJSON(t, v1Inventory(), v1Inventory(), payload)
-	if gjson.GetBytes(got, "namespace").String() != "multi_agent_v1" || gjson.GetBytes(got, "name").String() != "wait_agent" {
-		t.Fatalf("unique short child was not restored: %s", got)
+	if gjson.GetBytes(got, "name").String() != "wait_agent" {
+		t.Fatalf("bare unproven short child name rewritten: %s", got)
+	}
+	if ns := gjson.GetBytes(got, "namespace"); ns.Exists() && ns.Type != gjson.Null && ns.String() != "" {
+		t.Fatalf("unproven short child gained namespace: %s", got)
 	}
 	if gjson.GetBytes(got, "call_id").String() != "call_wait" {
 		t.Fatalf("call_id changed")
@@ -440,8 +442,14 @@ func TestOptimizedAliasDoesNotGuessPrefix(t *testing.T) {
 	if _, ok := restoreMap.lookupDotted("collaboration.spawn_agent"); !ok {
 		t.Fatal("canonical dotted identity was not recorded")
 	}
-	body, _ := json.Marshal(restoreMap.AmbiguousWireIdentities())
-	if strings.Contains(string(body), "collaboration-optimize.") && false {
-		t.Fatalf("unexpected: %s", body)
+	for _, name := range restoreMap.AmbiguousWireIdentities() {
+		if strings.Contains(name, "collaboration-optimize") {
+			t.Fatalf("exact optimizer alias marked ambiguous: %s", name)
+		}
+	}
+	prefixFamily := []byte(`{"type":"function_call","name":"collaboration-optimizeX.spawn_agent","namespace":null}`)
+	got := RestoreCodexNamespaceToolsFromMap(prefixFamily, restoreMap)
+	if gjson.GetBytes(got, "name").String() != "collaboration-optimizeX.spawn_agent" {
+		t.Fatalf("prefix-family name restored: %s", got)
 	}
 }

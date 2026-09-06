@@ -16,7 +16,7 @@ import (
 	"github.com/tidwall/gjson"
 )
 
-func TestCodexExecutorRestoresUniqueShortWaitAgent(t *testing.T) {
+func TestCodexExecutorLeavesUnprovenShortWaitAgentUntouched(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		_, _ = w.Write([]byte(`data: {"type":"response.completed","response":{"id":"resp_wait","object":"response","status":"completed","output":[{"type":"function_call","call_id":"call_wait","name":"wait_agent","namespace":null,"arguments":"{}"}]}}` + "\n\n"))
@@ -37,8 +37,11 @@ func TestCodexExecutorRestoresUniqueShortWaitAgent(t *testing.T) {
 	}`)
 	resp := executeCodexNamespaceRestore(t, server.URL, payload, false)
 	item := gjson.GetBytes(resp, "output.0")
-	if item.Get("namespace").String() != "multi_agent_v1" || item.Get("name").String() != "wait_agent" {
-		t.Fatalf("unique short wait_agent not restored: %s", resp)
+	if item.Get("name").String() != "wait_agent" {
+		t.Fatalf("bare unproven short name rewritten: %s", resp)
+	}
+	if item.Get("namespace").String() == "multi_agent_v1" {
+		t.Fatalf("unproven short wait_agent was restored from uniqueness: %s", resp)
 	}
 }
 

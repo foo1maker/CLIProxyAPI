@@ -19,7 +19,6 @@ type CodexNamespaceIdentity struct {
 // to canonical (namespace, name). It is not a prefix table.
 type CodexNamespaceRestoreMap struct {
 	dotted         map[string]CodexNamespaceIdentity
-	shortNames     map[string]CodexNamespaceIdentity
 	namespaceAlias map[string]string
 	children       map[string]map[string]struct{}
 	topLevel       map[string]struct{}
@@ -38,7 +37,6 @@ func BuildCodexNamespaceRestoreMap(original, optimized []byte) *CodexNamespaceRe
 	}
 	m := &CodexNamespaceRestoreMap{
 		dotted:         make(map[string]CodexNamespaceIdentity),
-		shortNames:     make(map[string]CodexNamespaceIdentity),
 		namespaceAlias: make(map[string]string),
 		children:       make(map[string]map[string]struct{}),
 		topLevel:       make(map[string]struct{}),
@@ -68,10 +66,9 @@ func BuildCodexNamespaceRestoreMap(original, optimized []byte) *CodexNamespaceRe
 			if wireName != "" && wireName != canonicalName {
 				m.registerDotted(wireName+"."+child, ident)
 			}
-			m.registerShort(child, ident)
 		}
 	})
-	if len(m.dotted) == 0 && len(m.shortNames) == 0 && len(m.namespaceAlias) == 0 && len(m.ambiguous) == 0 {
+	if len(m.dotted) == 0 && len(m.namespaceAlias) == 0 && len(m.ambiguous) == 0 {
 		return nil
 	}
 	return m
@@ -124,39 +121,6 @@ func (m *CodexNamespaceRestoreMap) lookupDotted(wire string) (CodexNamespaceIden
 	return ident, ok
 }
 
-func (m *CodexNamespaceRestoreMap) registerShort(wire string, ident CodexNamespaceIdentity) {
-	if m == nil || wire == "" {
-		return
-	}
-	if _, exists := m.topLevel[wire]; exists {
-		m.ambiguous[wire] = struct{}{}
-		delete(m.shortNames, wire)
-		return
-	}
-	if _, alreadyAmbiguous := m.ambiguous[wire]; alreadyAmbiguous {
-		return
-	}
-	if existing, ok := m.shortNames[wire]; ok {
-		if existing != ident {
-			m.ambiguous[wire] = struct{}{}
-			delete(m.shortNames, wire)
-		}
-		return
-	}
-	m.shortNames[wire] = ident
-}
-
-func (m *CodexNamespaceRestoreMap) lookupShort(wire string) (CodexNamespaceIdentity, bool) {
-	if m == nil || wire == "" {
-		return CodexNamespaceIdentity{}, false
-	}
-	if _, ambiguous := m.ambiguous[wire]; ambiguous {
-		return CodexNamespaceIdentity{}, false
-	}
-	ident, ok := m.shortNames[wire]
-	return ident, ok
-}
-
 func (m *CodexNamespaceRestoreMap) hasChild(namespace, name string) bool {
 	if m == nil || namespace == "" || name == "" {
 		return false
@@ -189,7 +153,7 @@ func RestoreCodexNamespaceToolsFromMap(payload []byte, restoreMap *CodexNamespac
 	if restoreMap == nil || len(payload) == 0 || !gjson.ValidBytes(payload) {
 		return payload
 	}
-	if len(restoreMap.dotted) == 0 && len(restoreMap.shortNames) == 0 && len(restoreMap.namespaceAlias) == 0 {
+	if len(restoreMap.dotted) == 0 && len(restoreMap.namespaceAlias) == 0 {
 		return payload
 	}
 
@@ -254,9 +218,6 @@ func restoreCodexNamespaceToolCall(typed map[string]any, restoreMap *CodexNamesp
 		return false
 	}
 	if namespace == "" {
-		if ident, ok := restoreMap.lookupShort(name); ok {
-			return applyCodexNamespaceIdentity(typed, ident)
-		}
 		return false
 	}
 	canonical, ok := restoreMap.canonicalNamespace(namespace)
