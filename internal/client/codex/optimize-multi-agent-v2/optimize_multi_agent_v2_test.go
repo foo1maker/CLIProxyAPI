@@ -533,6 +533,27 @@ func TestRewriteCodexMultiAgentV2InputConditions(t *testing.T) {
 			name:      "nil config",
 			userAgent: "Codex Desktop/0.146.0-alpha.3",
 		},
+		{
+			name:      "live official app-server tui identity",
+			cfg:       &config.Config{Codex: config.CodexConfig{OptimizeMultiAgentV2: true}},
+			userAgent: "codex-tui/0.153.4 (Windows 10.0.26200; x86_64) dumb (codex-tui; 0.153.4)",
+			want:      true,
+		},
+		{
+			name:      "live unofficial json-rpc client identity",
+			cfg:       &config.Config{Codex: config.CodexConfig{OptimizeMultiAgentV2: true}},
+			userAgent: "pilot-e2e/0.153.4 (Windows 10.0.26200; x86_64) dumb (pilot-e2e; 1.0.0)",
+		},
+		{
+			name: "empty identity",
+			cfg:  &config.Config{Codex: config.CodexConfig{OptimizeMultiAgentV2: true}},
+		},
+		{
+			name:      "codex_cli_rs identity",
+			cfg:       &config.Config{Codex: config.CodexConfig{OptimizeMultiAgentV2: true}},
+			userAgent: "codex_cli_rs/0.153.4",
+			want:      true,
+		},
 	}
 
 	for _, tt := range tests {
@@ -544,6 +565,139 @@ func TestRewriteCodexMultiAgentV2InputConditions(t *testing.T) {
 				t.Fatalf("rewritten = %v, want %v; payload=%s", rewritten, tt.want, got)
 			}
 		})
+	}
+}
+
+func TestRewriteCodexMultiAgentV2InputLiveFollowupFixture(t *testing.T) {
+	t.Parallel()
+
+	payload := []byte(`{"model":"glm-5.3-flash","input":[
+		{"type":"message","role":"user","content":[{"type":"input_text","text":"brain"}]},
+		{"type":"message","role":"assistant","content":[{"type":"output_text","text":"ok"}]},
+		{"type":"message","role":"user","content":[{"type":"input_text","text":"go"}]},
+		{"type":"message","role":"assistant","content":[{"type":"output_text","text":"spawned"}]},
+		{"type":"agent_message","id":"amsg_live","author":"/root","recipient":"/root/marker_reader_worker","content":[
+			{"type":"input_text","text":"Message Type: NEW_TASK\n"},
+			{"type":"encrypted_content","encrypted_content":"read the marker file"}
+		]}
+	]}`)
+	headers := http.Header{"User-Agent": []string{"codex-tui/0.153.4 (Windows 10.0.26200; x86_64) dumb (codex-tui; 0.153.4)"}}
+	cfg := &config.Config{Codex: config.CodexConfig{OptimizeMultiAgentV2: true}}
+	got := RewriteCodexMultiAgentV2Input(context.Background(), headers, payload, cfg)
+
+	if gjson.GetBytes(got, "input.#").Int() != 5 {
+		t.Fatalf("ordering/count changed: %s", got)
+	}
+	if typ := gjson.GetBytes(got, "input.4.type").String(); typ != "message" {
+		t.Fatalf("type = %q, want message", typ)
+	}
+	if role := gjson.GetBytes(got, "input.4.role").String(); role != "user" {
+		t.Fatalf("role = %q, want user", role)
+	}
+	if gjson.GetBytes(got, "input.#(type==agent_message)#").Int() != 0 {
+		t.Fatalf("agent_message leaked: %s", got)
+	}
+	if text := gjson.GetBytes(got, "input.4.content.1.text").String(); text != "read the marker file" {
+		t.Fatalf("content not preserved: %s", got)
+	}
+	if gjson.GetBytes(got, "input.0.type").String() != "message" || gjson.GetBytes(got, "input.0.content.0.text").String() != "brain" {
+		t.Fatalf("unrelated items changed: %s", got)
+	}
+	if gjson.GetBytes(got, "input.4.author").String() != "/root" {
+		t.Fatalf("author dropped: %s", got)
+	}
+}
+
+func TestRewriteCodexMultiAgentV2InputConverterMatrix(t *testing.T) {
+	t.Parallel()
+
+	headers := http.Header{"User-Agent": []string{"Codex Desktop/0.146.0-alpha.3"}}
+	cfg := &config.Config{Codex: config.CodexConfig{OptimizeMultiAgentV2: true}}
+	rewrite := func(payload []byte) []byte {
+		return RewriteCodexMultiAgentV2Input(context.Background(), headers, payload, cfg)
+	}
+
+	t.Run("multiple agent_message items", func(t *testing.T) {
+		t.Parallel()
+		payload := []byte(`{"input":[
+			{"type":"agent_message","content":[{"type":"encrypted_content","encrypted_content":"one"}]},
+			{"type":"agent_message","content":[{"type":"input_text","text":"two"}]}
+		]}`)
+		got := rewrite(payload)
+		if gjson.GetBytes(got, "input.0.type").String() != "message" || gjson.GetBytes(got, "input.1.type").String() != "message" {
+			t.Fatalf("not converted: %s", got)
+		}
+		if gjson.GetBytes(got, "input.0.content.0.text").String() != "one" || gjson.GetBytes(got, "input.1.content.0.text").String() != "two" {
+			t.Fatalf("content lost: %s", got)
+		}
+	})
+
+	t.Run("non-agent custom item untouched", func(t *testing.T) {
+		t.Parallel()
+		payload := []byte(`{"input":[
+			{"type":"agent_message","content":[{"type":"input_text","text":"ok"}]},
+			{"type":"custom_tool_call","name":"weird.item","call_id":"c1"}
+		]}`)
+		got := rewrite(payload)
+		if gjson.GetBytes(got, "input.1.type").String() != "custom_tool_call" || gjson.GetBytes(got, "input.1.name").String() != "weird.item" {
+			t.Fatalf("custom item rewritten: %s", got)
+		}
+		if gjson.GetBytes(got, "input.0.type").String() != "message" {
+			t.Fatalf("agent_message not converted: %s", got)
+		}
+	})
+
+	t.Run("malformed missing content", func(t *testing.T) {
+		t.Parallel()
+		payload := []byte(`{"input":[{"type":"agent_message","id":"amsg_empty"}]}`)
+		got := rewrite(payload)
+		if gjson.GetBytes(got, "input.0.type").String() != "message" {
+			t.Fatalf("type not rewritten: %s", got)
+		}
+		if gjson.GetBytes(got, "input.0.role").String() != "user" {
+			t.Fatalf("role not set: %s", got)
+		}
+	})
+
+	t.Run("non-array input is safe", func(t *testing.T) {
+		t.Parallel()
+		payload := []byte(`{"input":{"type":"agent_message"}}`)
+		got := rewrite(payload)
+		if string(got) != string(payload) {
+			t.Fatalf("non-array input changed: %s", got)
+		}
+	})
+
+	t.Run("idempotent second pass", func(t *testing.T) {
+		t.Parallel()
+		payload := []byte(`{"input":[{"type":"agent_message","content":[{"type":"encrypted_content","encrypted_content":"task"}]}]}`)
+		once := rewrite(payload)
+		twice := rewrite(once)
+		if gjson.GetBytes(twice, "input.0.type").String() != "message" {
+			t.Fatalf("second pass lost type: %s", twice)
+		}
+		if gjson.GetBytes(twice, "input.0.content.0.text").String() != "task" {
+			t.Fatalf("second pass lost text: %s", twice)
+		}
+		if gjson.GetBytes(twice, "input.#(type==agent_message)#").Int() != 0 {
+			t.Fatalf("second pass reintroduced agent_message: %s", twice)
+		}
+	})
+}
+
+func TestRewriteCodexMultiAgentV2InputIgnoresSubagentHeaderWithoutOfficialUA(t *testing.T) {
+	t.Parallel()
+
+	payload := []byte(`{"input":[{"type":"agent_message","content":[{"type":"input_text","text":"task"}]}]}`)
+	headers := http.Header{
+		"User-Agent":        []string{"curl/8.7.1"},
+		"X-Openai-Subagent": []string{"collab_spawn"},
+		"Originator":        []string{"pilot-e2e"},
+	}
+	cfg := &config.Config{Codex: config.CodexConfig{OptimizeMultiAgentV2: true}}
+	got := RewriteCodexMultiAgentV2Input(context.Background(), headers, payload, cfg)
+	if gjson.GetBytes(got, "input.0.type").String() != "agent_message" {
+		t.Fatalf("non-official identity was rewritten from subagent header: %s", got)
 	}
 }
 
