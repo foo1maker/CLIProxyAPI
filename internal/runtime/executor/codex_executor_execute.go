@@ -68,6 +68,7 @@ func (e *CodexExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth, re
 	body = normalizeCodexParallelToolCalls(body, opts.Headers)
 	preNamespaceBody := body
 	body, optimizeMultiAgentV2 := helps.OptimizeCodexMultiAgentV2RequestForAuth(ctx, opts.Headers, body, e.cfg, auth, baseModel)
+	body, _ = helps.FlatAliasNamespaceTools(preNamespaceBody, body)
 	namespaceRestoreMap := helps.BuildCodexNamespaceRestoreMap(preNamespaceBody, body)
 	body, replayScope, errReplay := applyCodexReasoningReplayCacheRequired(ctx, from, req, opts, body)
 	if errReplay != nil {
@@ -234,6 +235,7 @@ func (e *CodexExecutor) executeCompact(ctx context.Context, auth *cliproxyauth.A
 	body = normalizeCodexParallelToolCalls(body, opts.Headers)
 	preNamespaceBody := body
 	body, optimizeMultiAgentV2 := helps.OptimizeCodexMultiAgentV2RequestForAuth(ctx, opts.Headers, body, e.cfg, auth, baseModel)
+	body, _ = helps.FlatAliasNamespaceTools(preNamespaceBody, body)
 	namespaceRestoreMap := helps.BuildCodexNamespaceRestoreMap(preNamespaceBody, body)
 	reporter.SetTranslatedReasoningEffort(body, to.String())
 
