@@ -148,11 +148,3 @@ func RestoreCodexResponseNamespaces(payload []byte, optimized bool, restoreMap *
 	payload = multiagentv2.RestoreCodexNamespaceToolsFromMap(payload, restoreMap)
 	return multiagentv2.RestoreCodexMultiAgentV2Response(payload, optimized)
 }
-
-// FlatAliasNamespaceTools adds explicit flat `<namespace>__<child>` function
-// aliases for namespace tools in the optimized body when the temporary pilot
-// gate is enabled. The gate is read per request; the transform is a no-op
-// otherwise, and namespace containers are always preserved.
-func FlatAliasNamespaceTools(original, optimized []byte) ([]byte, bool) {
-	return multiagentv2.FlatAliasNamespaceTools(original, optimized)
-}

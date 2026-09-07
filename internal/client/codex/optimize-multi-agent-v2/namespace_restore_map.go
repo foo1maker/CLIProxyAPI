@@ -68,7 +68,6 @@ func BuildCodexNamespaceRestoreMap(original, optimized []byte) *CodexNamespaceRe
 			}
 		}
 	})
-	registerFlatAliasIdentities(original, optimized, m)
 	if len(m.dotted) == 0 && len(m.namespaceAlias) == 0 && len(m.ambiguous) == 0 {
 		return nil
 	}
